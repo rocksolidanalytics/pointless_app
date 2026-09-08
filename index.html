@@ -65,10 +65,12 @@
     font-variant-numeric:tabular-nums; color:var(--gold)
   }
   .score.zero b{color:var(--mint)}
+  .score.wrong b{color:var(--red)}
   .score em{display:block; font-style:normal; color:var(--muted); font-size:.9rem; margin-top:14px}
   .bar{height:14px; background:var(--ink3); border-radius:99px; overflow:hidden; margin:20px 0 4px}
   .bar i{display:block; height:100%; background:var(--gold); width:0%}
   .score.zero .bar i{background:var(--mint)}
+  .score.wrong .bar i{background:var(--red)}
 
   table{width:100%; border-collapse:collapse; font-size:.95rem}
   th,td{text-align:left; padding:10px 8px; border-bottom:1px solid var(--line)}
@@ -392,14 +394,37 @@
       rpc("pointless_score_answer", { p_join_code: code, p_admin_key: key, p_answer: a })
         .then(function (res) {
           if (!res.ok) { stage.innerHTML = ""; stage.appendChild(note("Could not check that: " + res.error, "bad")); return; }
-          if (!res.matched) {
-            stage.innerHTML = "";
-            stage.appendChild(note("\u201c" + a + "\u201d is not on the answer list for this topic.", "bad"));
-            return;
-          }
-          animateScore(stage, res.matched, res.points, res.is_pointless, res.mentions, res.respondents);
+          if (!res.matched) { offerVerdict(a); return; }
+          animateScore(stage, res.matched, res.points,
+            res.is_pointless ? "pointless" : "normal", res.mentions, res.respondents);
           guess.value = "";
         });
+    }
+
+    function offerVerdict(a) {
+      stage.innerHTML = "";
+      stage.appendChild(note("\u201c" + a + "\u201d is not on the answer list. Wrong answer, or one you forgot to add?", "bad"));
+      var choice = el("div", { "class": "row" });
+      choice.appendChild(el("button", {
+        text: "Wrong answer", "class": "ghost",
+        onclick: function () {
+          animateScore(stage, a, 100, "wrong");
+          guess.value = "";
+        }
+      }));
+      choice.appendChild(el("button", {
+        text: "It is valid, add it", "class": "ghost",
+        onclick: function () {
+          rpc("pointless_admin_add_answer", { p_join_code: code, p_admin_key: key, p_answer: a })
+            .then(function (res2) {
+              if (!res2.ok) { stage.innerHTML = ""; stage.appendChild(note("Could not add that: " + res2.error, "bad")); return; }
+              animateScore(stage, res2.matched, res2.points,
+                res2.is_pointless ? "pointless" : "normal", res2.mentions, res2.respondents, res2.rescored);
+              guess.value = "";
+            });
+        }
+      }));
+      stage.appendChild(choice);
     }
 
     guess.addEventListener("keydown", function (e) {
@@ -418,14 +443,22 @@
     });
   }
 
-  function animateScore(stage, answer, points, isPointless, mentions, respondents) {
+  function animateScore(stage, answer, points, kind, mentions, respondents, rescored) {
     function tally(box) {
-      box.appendChild(note(isPointless
+      if (kind === "wrong") {
+        box.appendChild(note("Not a valid answer. Automatic 100.", "bad"));
+        return;
+      }
+      box.appendChild(note(kind === "pointless"
         ? "Nobody said it. A pointless answer."
-        : mentions + " of " + respondents + " people said it.", isPointless ? "good" : ""));
+        : mentions + " of " + respondents + " people said it.", kind === "pointless" ? "good" : ""));
+      if (rescored) {
+        box.appendChild(note("Added to the list. " + rescored +
+          (rescored === 1 ? " earlier answer" : " earlier answers") + " re-counted against it.", ""));
+      }
     }
     stage.innerHTML = "";
-    var box = el("div", { "class": "score" + (isPointless ? " zero" : "") });
+    var box = el("div", { "class": "score" + (kind === "pointless" ? " zero" : kind === "wrong" ? " wrong" : "") });
     var big = el("b", { text: "100" });
     var bar = el("div", { "class": "bar" });
     var fill = el("i");
