@@ -51,11 +51,6 @@
   .fill{height:100%; background:var(--gold); width:100%}
   .track.low .fill{background:var(--red)}
 
-  .sugg{border:1px solid var(--line); border-radius:10px; margin-top:8px; overflow:hidden}
-  .sugg div{padding:12px 14px; border-bottom:1px solid var(--line); cursor:pointer}
-  .sugg div:last-child{border-bottom:none}
-  .sugg div:hover,.sugg div.on{background:var(--ink3)}
-
   ul.given{list-style:none; padding:0; margin:16px 0 0; display:flex; flex-wrap:wrap; gap:8px}
   ul.given li{
     background:var(--ink2); border:1px solid var(--line); border-radius:99px;
@@ -214,9 +209,9 @@
     app.appendChild(el("p", { "class": "sub", text: "Round " + code + (r.week ? " \u00b7 week " + r.week : "") }));
     app.appendChild(el("div", { "class": "topic", text: r.topic }));
     app.appendChild(el("p", {
-      text: "You get " + r.timer_seconds + " seconds to name as many as you can. Type fast, spelling does not need to be perfect."
+      text: "You get " + r.timer_seconds + " seconds to name as many as you can, straight off the top of your head. No list, no hints."
     }));
-    app.appendChild(el("p", { "class": "sub", text: "Your answers stay anonymous. They set the scores the contestants play against." }));
+    app.appendChild(el("p", { "class": "sub", text: "Spelling does not need to be perfect. Your answers stay anonymous and set the scores the contestants play against." }));
 
     var name = el("input", { placeholder: "Your name (optional)", value: store("pointless_name") || "" });
     app.appendChild(el("label", { text: "Name, if you want the credit" }));
@@ -233,7 +228,6 @@
 
   function renderPlayRun(code, r, displayName) {
     clear();
-    var answers = r.answers || [];
     var given = [];
     var endsAt = Date.now() + r.timer_seconds * 1000;
     var finished = false;
@@ -252,8 +246,11 @@
       autocomplete: "off", autocorrect: "off", autocapitalize: "words", spellcheck: "false"
     });
     app.appendChild(input);
-    var sugg = el("div", { "class": "sugg", style: "display:none" });
-    app.appendChild(sugg);
+    var addBtn = el("button", {
+      text: "Add", "class": "ghost", style: "margin-top:8px",
+      onclick: function () { add(input.value); input.focus(); }
+    });
+    app.appendChild(addBtn);
 
     var list = el("ul", { "class": "given" });
     var count = el("div", { "class": "count", text: "0 answers" });
@@ -279,41 +276,14 @@
       if (!v) return;
       var n = norm(v);
       if (!n) return;
-      if (given.some(function (g) { return norm(g) === n; })) { input.value = ""; showSugg(""); return; }
+      if (given.some(function (g) { return norm(g) === n; })) { input.value = ""; return; }
       given.push(v);
       input.value = "";
-      showSugg("");
       redraw();
     }
 
-    function showSugg(q) {
-      sugg.innerHTML = "";
-      var n = norm(q);
-      if (!n || n.length < 1) { sugg.style.display = "none"; return; }
-      var starts = [], contains = [];
-      for (var i = 0; i < answers.length; i++) {
-        var an = norm(answers[i]);
-        if (an.indexOf(n) === 0) starts.push(answers[i]);
-        else if (an.indexOf(n) > -1) contains.push(answers[i]);
-        if (starts.length >= 6) break;
-      }
-      var out = starts.concat(contains).slice(0, 6).filter(function (a) {
-        return !given.some(function (g) { return norm(g) === norm(a); });
-      });
-      if (!out.length) { sugg.style.display = "none"; return; }
-      out.forEach(function (a) {
-        sugg.appendChild(el("div", { text: a, onclick: function () { add(a); input.focus(); } }));
-      });
-      sugg.style.display = "block";
-    }
-
-    input.addEventListener("input", function () { showSugg(input.value); });
     input.addEventListener("keydown", function (e) {
-      if (e.key !== "Enter") return;
-      e.preventDefault();
-      var first = sugg.querySelector("div");
-      if (first && norm(first.textContent).indexOf(norm(input.value)) === 0) add(first.textContent);
-      else add(input.value);
+      if (e.key === "Enter") { e.preventDefault(); add(input.value); }
     });
     setTimeout(function () { input.focus(); }, 60);
 
@@ -407,31 +377,35 @@
     });
     app.appendChild(controls);
 
-    app.appendChild(el("h2", { text: "Play the answer" }));
-    var team = el("input", { placeholder: "Team", value: store("pointless_last_team") || "" });
-    var player = el("input", { placeholder: "Player (optional)" });
-    var guess = el("input", { placeholder: "Their answer" });
-    app.appendChild(el("label", { text: "Team" })); app.appendChild(team);
-    app.appendChild(el("label", { text: "Player" })); app.appendChild(player);
-    app.appendChild(el("label", { text: "Answer" })); app.appendChild(guess);
+    app.appendChild(el("h2", { text: "Check an answer" }));
+    var guess = el("input", {
+      placeholder: "Type the answer", autocomplete: "off", autocapitalize: "words", spellcheck: "false"
+    });
+    app.appendChild(guess);
     app.appendChild(el("div", { style: "height:12px" }));
 
     var stage = el("div");
-    app.appendChild(el("button", {
-      text: "Reveal the score",
-      onclick: function () {
-        if (!team.value.trim() || !guess.value.trim()) return;
-        store("pointless_last_team", team.value.trim());
-        rpc("pointless_record_result", {
-          p_join_code: code, p_admin_key: key,
-          p_team: team.value.trim(), p_player: player.value.trim() || null, p_answer: guess.value.trim()
-        }).then(function (res) {
-          if (!res.ok) { stage.innerHTML = ""; stage.appendChild(note("Could not record that: " + res.error, "bad")); return; }
-          animateScore(stage, guess.value.trim(), res.points, res.is_pointless);
-          guess.value = ""; player.value = "";
+
+    function reveal() {
+      var a = guess.value.trim();
+      if (!a) return;
+      rpc("pointless_score_answer", { p_join_code: code, p_admin_key: key, p_answer: a })
+        .then(function (res) {
+          if (!res.ok) { stage.innerHTML = ""; stage.appendChild(note("Could not check that: " + res.error, "bad")); return; }
+          if (!res.matched) {
+            stage.innerHTML = "";
+            stage.appendChild(note("\u201c" + a + "\u201d is not on the answer list for this topic.", "bad"));
+            return;
+          }
+          animateScore(stage, res.matched, res.points, res.is_pointless, res.mentions, res.respondents);
+          guess.value = "";
         });
-      }
-    }));
+    }
+
+    guess.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); reveal(); }
+    });
+    app.appendChild(el("button", { text: "Reveal the score", onclick: reveal }));
     app.appendChild(stage);
 
     var board = el("div");
@@ -444,7 +418,12 @@
     });
   }
 
-  function animateScore(stage, answer, points, isPointless) {
+  function animateScore(stage, answer, points, isPointless, mentions, respondents) {
+    function tally(box) {
+      box.appendChild(note(isPointless
+        ? "Nobody said it. A pointless answer."
+        : mentions + " of " + respondents + " people said it.", isPointless ? "good" : ""));
+    }
     stage.innerHTML = "";
     var box = el("div", { "class": "score" + (isPointless ? " zero" : "") });
     var big = el("b", { text: "100" });
@@ -460,7 +439,7 @@
     if (reduced) {
       big.textContent = String(points);
       fill.style.width = points + "%";
-      if (isPointless) box.appendChild(note("A pointless answer.", "good"));
+      tally(box);
       return;
     }
 
@@ -476,7 +455,7 @@
         clearInterval(timer);
         big.textContent = String(points);
         fill.style.width = points + "%";
-        if (isPointless) box.appendChild(note("A pointless answer. Nobody said it.", "good"));
+        tally(box);
       }
     }, 40);
   }
@@ -593,26 +572,6 @@
       onclick: function () { loadQueue(qCode.value.trim().toUpperCase(), qOut); }
     }));
     app.appendChild(qOut);
-
-    app.appendChild(el("h2", { text: "Season table" }));
-    var sOut = el("div");
-    app.appendChild(sOut);
-    rpc("pointless_season_table").then(function (rows) {
-      sOut.innerHTML = "";
-      if (!rows || !rows.length) { sOut.appendChild(el("p", { "class": "sub", text: "No results recorded yet. Lowest total wins." })); return; }
-      var t = el("table");
-      t.appendChild(el("tr", {}, [
-        el("th", { text: "Team" }), el("th", { text: "Rounds" }), el("th", { text: "Pointless" }), el("th", { "class": "n", text: "Total" })
-      ]));
-      rows.forEach(function (x) {
-        t.appendChild(el("tr", {}, [
-          el("td", { text: x.team }), el("td", { text: String(x.rounds_played) }),
-          el("td", { text: String(x.pointless_answers) }), el("td", { "class": "n", text: String(x.total) })
-        ]));
-      });
-      sOut.appendChild(t);
-      sOut.appendChild(el("p", { "class": "sub", text: "Lowest total wins." }));
-    });
 
     app.appendChild(el("div", { style: "height:26px" }));
     app.appendChild(el("button", {
