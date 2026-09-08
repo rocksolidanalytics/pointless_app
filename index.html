@@ -544,6 +544,31 @@
     }
     card.appendChild(btns);
 
+    var delBtn = el("button", { "class": "danger small", text: "Delete round", style: "margin-top:8px" });
+    var armed = false, armTimer = null;
+    delBtn.addEventListener("click", function () {
+      if (!armed) {
+        armed = true;
+        delBtn.textContent = "Tap again to delete " + r.join_code + " and its answers";
+        armTimer = setTimeout(function () {
+          armed = false;
+          delBtn.textContent = "Delete round";
+        }, 5000);
+        return;
+      }
+      clearTimeout(armTimer);
+      delBtn.disabled = true;
+      delBtn.textContent = "Deleting";
+      rpc("pointless_admin_delete_round", { p_master_key: master, p_join_code: r.join_code })
+        .then(function () { refresh(); })
+        .catch(function () {
+          delBtn.disabled = false;
+          armed = false;
+          delBtn.textContent = "Delete failed, tap to retry";
+        });
+    });
+    card.appendChild(delBtn);
+
     var inner = el("div", { "class": "inner" });
     var det = el("details", {}, [
       el("summary", { text: "Answers so far" + (r.to_review > 0 ? " (" + r.to_review + " need a decision)" : "") }),
