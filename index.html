@@ -553,13 +553,34 @@
           .then(function (res) {
             tOut.innerHTML = "";
             tOut.appendChild(res.ok ? note("Topic saved with " + res.added + " answers.", "good") : note("Failed: " + res.error, "bad"));
+            if (res.ok) loadTopics();
           }).catch(function () { tOut.innerHTML = ""; tOut.appendChild(note("Not authorised. Check the master key.", "bad")); });
       }
     }));
     app.appendChild(tOut);
 
     app.appendChild(el("h2", { text: "New round" }));
-    var rTopic = el("input", { placeholder: "Topic name (must match exactly)" });
+    var rTopic = el("select");
+    rTopic.appendChild(el("option", { value: "", text: "Loading topics..." }));
+
+    function loadTopics() {
+      return rpc("pointless_admin_list_topics", { p_master_key: master })
+        .then(function (res) {
+          rTopic.innerHTML = "";
+          if (!res.ok || !res.topics.length) {
+            rTopic.appendChild(el("option", { value: "", text: "No topics yet" }));
+            return;
+          }
+          res.topics.forEach(function (t) {
+            rTopic.appendChild(el("option", { value: t.name, text: t.name + " (" + t.answers + ")" }));
+          });
+        })
+        .catch(function () {
+          rTopic.innerHTML = "";
+          rTopic.appendChild(el("option", { value: "", text: "Could not load topics" }));
+        });
+    }
+    loadTopics();
     var rWeek = el("input", { placeholder: "Week number", inputmode: "numeric" });
     var rTimer = el("input", { placeholder: "Seconds", inputmode: "numeric", value: "100" });
     app.appendChild(el("label", { text: "Topic" })); app.appendChild(rTopic);
@@ -571,6 +592,11 @@
     var rOut = el("div");
     app.appendChild(el("button", {
       text: "Create round", onclick: function () {
+        if (!rTopic.value) {
+          rOut.innerHTML = "";
+          rOut.appendChild(note("Pick a topic first.", "bad"));
+          return;
+        }
         rpc("pointless_admin_create_round", {
           p_master_key: master, p_topic_name: rTopic.value.trim(),
           p_week: parseInt(rWeek.value, 10) || null, p_timer: parseInt(rTimer.value, 10) || 100
