@@ -88,6 +88,13 @@
   a{color:var(--gold)}
   .code{font-variant-numeric:tabular-nums; letter-spacing:.12em; font-weight:800; font-size:1.6rem}
   .foot{margin-top:34px; color:var(--muted); font-size:.82rem}
+  details{border:1px solid var(--line); border-radius:10px; margin-top:14px; padding:0 14px}
+  details summary{padding:15px 0; cursor:pointer; font-weight:700; list-style:none}
+  details summary::-webkit-details-marker{display:none}
+  details summary::after{content:" \25be"; color:var(--muted); float:right}
+  details[open] summary::after{content:" \25b4"}
+  details .inner{padding-bottom:16px}
+  .warn{color:var(--muted); font-size:.85rem; margin:16px 0 0}
   @media (prefers-reduced-motion: reduce){ *{transition:none !important; animation:none !important} }
 </style>
 </head>
@@ -498,7 +505,9 @@
     var scored = (r.rows || []).filter(function (x) { return x.mentions > 0; });
     var zeros = (r.rows || []).filter(function (x) { return x.mentions === 0; });
 
-    board.appendChild(el("h2", { text: "What people said" }));
+    board.appendChild(el("p", { "class": "warn",
+      text: "Both lists below stay shut until you open them, so this screen is safe to share." }));
+
     var t = el("table");
     t.appendChild(el("tr", {}, [
       el("th", { text: "Answer" }), el("th", { text: "Said by" }), el("th", { "class": "n", text: "Score" })
@@ -510,12 +519,28 @@
         el("td", { "class": "n", text: String(x.score) })
       ]));
     });
-    board.appendChild(t);
 
-    board.appendChild(el("h2", { text: "Nobody said these (" + zeros.length + ")" }));
+    var d1 = el("details", {}, [
+      el("summary", { text: "What people said (" + scored.length + ")" }),
+      el("div", { "class": "inner" }, [t])
+    ]);
+    board.appendChild(d1);
+
     var chips = el("div", { "class": "chips" });
     zeros.forEach(function (x) { chips.appendChild(el("span", { text: x.answer })); });
-    board.appendChild(chips);
+    var d2 = el("details", {}, [
+      el("summary", { text: "Nobody said these (" + zeros.length + ")" }),
+      el("div", { "class": "inner" }, [chips])
+    ]);
+    board.appendChild(d2);
+
+    // never leave both open at once by accident
+    [d1, d2].forEach(function (d) {
+      d.addEventListener("toggle", function () {
+        if (!d.open) return;
+        [d1, d2].forEach(function (o) { if (o !== d) o.open = false; });
+      });
+    });
   }
 
   // ---------------------------------------------------------------- admin
