@@ -597,6 +597,48 @@
       });
     });
     card.appendChild(det);
+
+    var lbInner = el("div", { "class": "inner" });
+    var lbDet = el("details", {}, [el("summary", { text: "Who did best" }), lbInner]);
+    lbDet.addEventListener("toggle", function () {
+      if (!lbDet.open || lbInner.dataset.loaded) return;
+      lbInner.dataset.loaded = "1";
+      lbInner.appendChild(el("p", { "class": "sub", text: "Loading" }));
+      rpc("pointless_admin_leaderboard", { p_master_key: master, p_join_code: r.join_code })
+        .then(function (res) {
+          lbInner.innerHTML = "";
+          if (!res.ok) { lbInner.appendChild(note("Could not load that.", "bad")); return; }
+          if (!res.rows.length) {
+            lbInner.appendChild(el("p", { "class": "sub",
+              text: res.anonymous ? "All " + res.anonymous + " played anonymously, so there is nobody to rank."
+                                  : "Nobody has answered yet." }));
+            return;
+          }
+          var top = res.rows[0], bottom = res.rows[res.rows.length - 1];
+          lbInner.appendChild(el("p", { text: "Most valid answers: " + top.name + " with " + top.valid }));
+          if (res.rows.length > 1 && bottom.valid !== top.valid) {
+            lbInner.appendChild(el("p", { text: "Fewest: " + bottom.name + " with " + bottom.valid }));
+          }
+          var lt = el("table");
+          lt.appendChild(el("tr", {}, [
+            el("th", { text: "Name" }), el("th", { "class": "n", text: "Valid" }), el("th", { "class": "n", text: "Typed" })
+          ]));
+          res.rows.forEach(function (x) {
+            lt.appendChild(el("tr", {}, [
+              el("td", { text: x.name }),
+              el("td", { "class": "n", text: String(x.valid) }),
+              el("td", { "class": "n", text: String(x.submitted) })
+            ]));
+          });
+          lbInner.appendChild(lt);
+          if (res.anonymous) {
+            lbInner.appendChild(el("p", { "class": "sub",
+              text: res.anonymous + " played anonymously and are not ranked." }));
+          }
+        });
+    });
+    card.appendChild(lbDet);
+
     return card;
   }
 
