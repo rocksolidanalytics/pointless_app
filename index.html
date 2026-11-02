@@ -53,16 +53,29 @@
   ul.given li button{width:auto; padding:0 2px; background:none; color:var(--muted); font-weight:700; border:none}
   .count{color:var(--muted); font-size:.85rem; margin-top:14px}
 
-  .score{text-align:center; padding:26px 0 10px}
+  .score{padding:26px 0 10px}
+  .meter{display:flex; align-items:center; justify-content:center; gap:26px}
+  .meter .side{min-width:0; text-align:left}
   .score b{display:block; font-size:6.5rem; font-weight:800; letter-spacing:-0.05em; line-height:.9;
     font-variant-numeric:tabular-nums; color:var(--gold)}
-  .score.zero b{color:var(--mint)}
+  .score.zero b{color:var(--mint); animation:pop .7s ease-out 2}
   .score.wrong b{color:var(--red)}
-  .score em{display:block; font-style:normal; color:var(--muted); font-size:.95rem; margin-top:14px}
-  .bar{height:14px; background:var(--ink3); border-radius:99px; overflow:hidden; margin:20px 0 4px}
-  .bar i{display:block; height:100%; background:var(--gold); width:0%}
-  .score.zero .bar i{background:var(--mint)}
-  .score.wrong .bar i{background:var(--red)}
+  .score em{display:block; font-style:normal; color:var(--muted); font-size:1.05rem; margin-top:14px;
+    overflow-wrap:anywhere}
+  .col{position:relative; flex:none; width:86px; height:min(52vh,380px); background:var(--ink3);
+    border:1px solid var(--line); border-radius:14px; overflow:hidden}
+  .col i{position:absolute; left:0; right:0; bottom:0; height:100%; background:var(--gold);
+    box-shadow:0 0 18px rgba(245,200,66,.55)}
+  .col::after{content:""; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(to top, transparent 0 calc(10% - 2px), var(--ink) calc(10% - 2px) 10%)}
+  .score.zero .col{border-color:var(--mint); animation:glow 1.4s ease-out 1 forwards}
+  .score.wrong .col i{background:var(--red); box-shadow:0 0 18px rgba(255,122,122,.5)}
+  .score.wrong .col{animation:shake .45s ease-in-out 1}
+  @keyframes pop{0%{transform:scale(1)} 35%{transform:scale(1.2)} 100%{transform:scale(1)}}
+  @keyframes glow{0%{box-shadow:0 0 0 0 rgba(91,231,169,.9)} 60%{box-shadow:0 0 0 10px rgba(91,231,169,0), 0 0 50px rgba(91,231,169,.7)}
+    100%{box-shadow:0 0 30px rgba(91,231,169,.45)}}
+  @keyframes shake{0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)}}
+  .sound{width:auto; margin:10px 0 0 auto}
 
   table{width:100%; border-collapse:collapse; font-size:.95rem}
   th,td{text-align:left; padding:9px 8px; border-bottom:1px solid var(--line)}
@@ -737,6 +750,7 @@
     function reveal() {
       var a = guess.value.trim();
       if (!a) return;
+      unlockAudio();
       rpc("pointless_score_answer", { p_join_code: code, p_admin_key: adminKey, p_answer: a })
         .then(function (res) {
           if (!res.ok) { stage.innerHTML = ""; stage.appendChild(note("Could not check that: " + res.error, "bad")); return; }
@@ -752,11 +766,12 @@
       var choice = el("div", { "class": "row" });
       choice.appendChild(el("button", {
         "class": "ghost", text: "Wrong answer",
-        onclick: function () { animateScore(stage, a, 100, "wrong"); guess.value = ""; }
+        onclick: function () { unlockAudio(); animateScore(stage, a, 100, "wrong"); guess.value = ""; }
       }));
       choice.appendChild(el("button", {
         "class": "ghost", text: "It is valid, add it",
         onclick: function () {
+          unlockAudio();
           rpc("pointless_admin_add_answer", { p_join_code: code, p_admin_key: adminKey, p_answer: a })
             .then(function (res2) {
               if (!res2.ok) { stage.innerHTML = ""; stage.appendChild(note("Could not add that: " + res2.error, "bad")); return; }
@@ -771,6 +786,7 @@
 
     guess.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); reveal(); } });
     app.appendChild(el("button", { text: "Reveal the score", onclick: reveal }));
+    app.appendChild(soundToggle());
     app.appendChild(stage);
 
     var finale = el("div");
@@ -801,40 +817,105 @@
           (rescored === 1 ? " earlier answer" : " earlier answers") + " re-counted against it.", ""));
       }
     }
+    // Stop any reveal that is still running before starting a new one.
+    if (scoreTimer) { clearTimeout(scoreTimer); scoreTimer = null; }
     stage.innerHTML = "";
-    var box = el("div", { "class": "score" + (kind === "pointless" ? " zero" : kind === "wrong" ? " wrong" : "") });
+    // The pointless styling is held back until the column lands, so it can't give the result away early.
+    var box = el("div", { "class": "score" + (kind === "wrong" ? " wrong" : "") });
     var big = el("b", { text: "100" });
-    var bar = el("div", { "class": "bar" });
+    var col = el("div", { "class": "col" });
     var fill = el("i");
-    bar.appendChild(fill);
-    box.appendChild(big);
-    box.appendChild(bar);
-    box.appendChild(el("em", { text: answer }));
+    col.appendChild(fill);
+    box.appendChild(el("div", { "class": "meter" }, [
+      col,
+      el("div", { "class": "side" }, [big, el("em", { text: answer })])
+    ]));
     stage.appendChild(box);
 
-    var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) {
+    function land() {
+      scoreTimer = null;
       big.textContent = String(points);
-      fill.style.width = points + "%";
+      fill.style.height = points + "%";
+      if (kind === "pointless") box.classList.add("zero");
+      sting(kind === "wrong" ? "wrong" : kind === "pointless" ? "pointless" : "land", points);
       tally(box);
-      return;
     }
 
-    fill.style.width = "100%";
-    var start = Date.now(), dur = 2200, from = 100;
-    var timer = setInterval(function () {
-      var t = Math.min(1, (Date.now() - start) / dur);
-      var eased = 1 - Math.pow(1 - t, 3);
-      var v = Math.round(from - (from - points) * eased);
+    var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (kind === "wrong" || reduced) { land(); return; }
+
+    // A steady drain, one point per step, so lower scores take longer to arrive.
+    var v = 100;
+    fill.style.height = "100%";
+    function step() {
+      if (!box.isConnected) { scoreTimer = null; return; }
+      v -= 1;
       big.textContent = String(v);
-      fill.style.width = v + "%";
-      if (t >= 1) {
-        clearInterval(timer);
-        big.textContent = String(points);
-        fill.style.width = points + "%";
-        tally(box);
-      }
-    }, 40);
+      fill.style.height = v + "%";
+      blip(v);
+      if (v <= points) { scoreTimer = setTimeout(land, 180); return; }
+      scoreTimer = setTimeout(step, STEP_MS);
+    }
+    if (points >= 100) { land(); return; }
+    scoreTimer = setTimeout(step, 700);
+  }
+
+  // ---------------------------------------------------------------- sound
+  // Tones are synthesised in the browser; there are no audio files.
+
+  var STEP_MS = 55;
+  var scoreTimer = null;
+  var audioCtx = null;
+
+  function soundOn() { return store("pointless_sound") !== "off"; }
+
+  // Call from a click or key press so browsers allow the audio to start.
+  function unlockAudio() {
+    if (!soundOn()) return;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+    } catch (e) { audioCtx = null; }
+  }
+
+  function tone(freq, at, dur, type, vol) {
+    if (!audioCtx || !soundOn()) return;
+    var t0 = audioCtx.currentTime + (at || 0);
+    var osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.type = type || "triangle";
+    osc.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol || 0.08, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.02);
+  }
+
+  // Pitch falls with the column: high near 100, low near 0.
+  function blip(v) { tone(180 + v * 6, 0, 0.05, "triangle", 0.06); }
+
+  function sting(kind, points) {
+    if (kind === "wrong") {
+      tone(110, 0, 0.55, "sawtooth", 0.07);
+      tone(104, 0, 0.55, "sawtooth", 0.05);
+    } else if (kind === "pointless") {
+      [523, 659, 784, 1047].forEach(function (f, i) { tone(f, i * 0.11, 0.35, "triangle", 0.1); });
+      tone(1047, 0.44, 0.9, "sine", 0.08);
+    } else {
+      tone(180 + points * 6, 0, 0.4, "sine", 0.09);
+    }
+  }
+
+  function soundToggle() {
+    var b = el("button", { "class": "ghost small sound" });
+    function label() { b.textContent = soundOn() ? "Sound: on" : "Sound: off"; }
+    b.addEventListener("click", function () {
+      store("pointless_sound", soundOn() ? "off" : "on");
+      label();
+      unlockAudio();
+    });
+    label();
+    return b;
   }
 
   // ---------------------------------------------------------------- router
